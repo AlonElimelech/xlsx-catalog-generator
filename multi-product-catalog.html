@@ -1,0 +1,1102 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>טופס קליטת מוצר – ספקים וזכיינים</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Frank+Ruhl+Libre:wght@700&family=Heebo:wght@400;500;600;700&family=Roboto+Mono:wght@500&display=swap" rel="stylesheet">
+
+<!-- SheetJS fork with cell-style write support (fonts/fills/borders/alignment/numFmt) -->
+<script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+<!-- JSZip: used to inject the product photo as a real embedded picture after SheetJS writes the workbook -->
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<!-- ZXing: client-side barcode reader — decodes the ברקוד digits from an uploaded/photographed image (global: ZXingBrowser) -->
+<script src="https://cdn.jsdelivr.net/npm/@zxing/browser@0.1.5/umd/zxing-browser.min.js"></script>
+
+<style>
+/* ======================================================================
+   CSS STYLING
+   ====================================================================== */
+:root{
+  --ink:#1C2430;
+  --ink-soft:#5B6472;
+  --paper:#F6F3EC;
+  --card:#FFFFFF;
+  --teal:#0E6B64;
+  --teal-dark:#0A524D;
+  --amber:#C98A2E;
+  --amber-soft:#F6E9D2;
+  --line:#E4DFD3;
+  --danger:#B3413E;
+  --danger-soft:#F7E7E6;
+  --success:#2F7B5C;
+  --radius:16px;
+  --shadow:0 1px 2px rgba(28,36,48,.05), 0 10px 30px rgba(28,36,48,.07);
+  --font-display:'Frank Ruhl Libre', 'David Libre', serif;
+  --font-body:'Heebo', 'Segoe UI', Arial, sans-serif;
+  --font-mono:'Roboto Mono', Consolas, monospace;
+}
+
+*{ box-sizing:border-box; }
+html,body{ margin:0; padding:0; }
+body{
+  background:var(--paper);
+  color:var(--ink);
+  font-family:var(--font-body);
+  line-height:1.5;
+  min-height:100vh;
+}
+
+.page{ max-width:760px; margin:0 auto; padding:48px 20px 80px; }
+
+.page-header{ text-align:center; margin-bottom:32px; }
+.page-header h1{ font-family:var(--font-display); font-size:clamp(26px,5vw,34px); font-weight:700; margin:0; }
+.page-header .accent-rule{ width:56px; height:3px; background:var(--amber); margin:14px auto; border-radius:2px; }
+.page-header p{ color:var(--ink-soft); font-size:15px; margin:0; }
+
+.card{
+  background:var(--card);
+  border-radius:var(--radius);
+  box-shadow:var(--shadow);
+  border:1px solid rgba(28,36,48,.03);
+  padding:26px 28px;
+  margin-bottom:22px;
+}
+.card h2{ font-family:var(--font-display); font-size:19px; font-weight:700; margin:0 0 18px; }
+
+/* ---- entity type toggle ---- */
+.type-toggle{ display:flex; gap:10px; }
+.type-option{ position:relative; flex:1; }
+.type-option input{ position:absolute; inset:0; opacity:0; margin:0; cursor:pointer; }
+.type-option label{
+  display:flex; align-items:center; justify-content:center; gap:8px;
+  padding:16px; border-radius:12px; border:1.5px solid var(--line);
+  font-weight:600; color:var(--ink-soft); user-select:none;
+  transition:border-color .15s ease, background .15s ease, color .15s ease;
+}
+.type-option input:checked + label{
+  border-color:var(--teal); background:rgba(14,107,100,.07); color:var(--teal-dark);
+}
+.type-option input:focus-visible + label{ outline:2px solid var(--teal); outline-offset:2px; }
+
+.placeholder-hint{
+  color:var(--ink-soft); font-size:14px; margin:0;
+  background:var(--paper); border:1.5px dashed var(--line); border-radius:10px; padding:14px 16px;
+}
+
+/* ---- form fields ---- */
+.field-grid{ display:grid; grid-template-columns:1fr 1fr; gap:18px; }
+@media (max-width:560px){ .field-grid{ grid-template-columns:1fr; } }
+.field{ display:flex; flex-direction:column; gap:6px; }
+.field.full{ grid-column:1 / -1; }
+.field > label{ font-size:13.5px; font-weight:600; color:var(--ink-soft); }
+.field > label .req{ color:var(--danger); margin-inline-start:2px; }
+
+.field input, .field textarea{
+  font:inherit; font-family:var(--font-body); font-size:14.5px;
+  padding:12px 14px; border-radius:10px; border:1.5px solid var(--line);
+  background:#fff; color:var(--ink); width:100%;
+  transition:border-color .15s ease, box-shadow .15s ease;
+}
+.field textarea{ resize:vertical; min-height:64px; }
+.field input:focus, .field textarea:focus{
+  outline:none; border-color:var(--teal); box-shadow:0 0 0 4px rgba(14,107,100,.12);
+}
+.field.invalid input, .field.invalid textarea{ border-color:var(--danger); }
+.field.invalid input:focus, .field.invalid textarea:focus{ box-shadow:0 0 0 4px rgba(179,65,62,.14); }
+.field .error-msg{ font-size:12.5px; color:var(--danger); min-height:15px; }
+
+.numeric-input{ font-family:var(--font-mono); font-variant-numeric:tabular-nums; text-align:center; }
+.barcode-input{ letter-spacing:2px; }
+
+/* ---- barcode scan-from-image control ---- */
+.scan-btn{
+  display:inline-flex; align-items:center; gap:7px; align-self:flex-start;
+  font:inherit; font-family:var(--font-body); font-size:13px; font-weight:600;
+  padding:8px 12px; margin-top:2px; border-radius:9px;
+  border:1.5px solid var(--line); background:transparent; color:var(--teal-dark);
+  cursor:pointer; transition:border-color .15s ease, background .15s ease, color .15s ease;
+}
+.scan-btn:hover:not(:disabled){ border-color:var(--teal); background:rgba(14,107,100,.05); }
+.scan-btn:focus-visible{ outline:2px solid var(--teal); outline-offset:2px; }
+.scan-btn:disabled{ opacity:.6; cursor:progress; }
+.scan-status{ font-size:12.5px; min-height:15px; color:var(--ink-soft); }
+.scan-status.ok{ color:var(--success); }
+.scan-status.fail{ color:var(--danger); }
+
+.input-suffix-wrap{ position:relative; }
+.input-suffix-wrap input{ padding-inline-end:44px; }
+.input-suffix-wrap .suffix{
+  position:absolute; inset-inline-end:14px; top:50%; transform:translateY(-50%);
+  font-size:12.5px; color:var(--ink-soft); pointer-events:none;
+}
+
+/* ---- image dropzone ---- */
+.dropzone{
+  border:2px dashed var(--line); border-radius:14px; padding:18px;
+  display:flex; align-items:center; gap:16px; cursor:pointer;
+  transition:border-color .15s ease, background .15s ease;
+}
+.dropzone:hover, .dropzone.dragover{ border-color:var(--teal); background:rgba(14,107,100,.04); }
+.dropzone:focus-visible{ outline:2px solid var(--teal); outline-offset:2px; }
+.dropzone .thumb{
+  width:80px; height:80px; border-radius:10px; background:var(--paper);
+  display:flex; align-items:center; justify-content:center; overflow:hidden; flex-shrink:0;
+  border:1px solid var(--line); color:var(--ink-soft);
+}
+.dropzone .thumb img{ width:100%; height:100%; object-fit:cover; display:block; }
+.dropzone .hint strong{ display:block; color:var(--ink); font-size:14.5px; margin-bottom:2px; }
+.dropzone .hint span{ font-size:12.5px; color:var(--ink-soft); }
+
+/* ---- live preview (signature element) ---- */
+.preview-wrap{ overflow-x:auto; border-radius:12px; border:1px solid var(--line); }
+.preview-wrap + .preview-wrap{ margin-top:12px; }
+table.preview-table{ border-collapse:collapse; width:100%; min-width:600px; font-size:13px; }
+table.preview-table th{
+  background:var(--amber-soft); color:#6B4A17; font-weight:700;
+  padding:10px 8px; border:1px solid var(--line); white-space:normal;
+}
+table.preview-table td{ padding:8px; border:1px solid var(--line); text-align:center; color:var(--ink); }
+table.preview-table td.empty{ color:#B7B0A0; font-style:italic; }
+.prev-thumb{ width:44px; height:44px; object-fit:cover; border-radius:6px; display:block; margin:0 auto; }
+tr.preview-current td{ background:rgba(14,107,100,.045); }
+
+/* ---- add-item bar ---- */
+.add-item-bar{
+  display:flex; align-items:center; gap:12px; flex-wrap:wrap;
+  margin-top:20px; padding-top:18px; border-top:1px dashed var(--line);
+}
+.btn-add-item{
+  display:inline-flex; align-items:center; gap:8px;
+  font-family:var(--font-body); font-weight:700; font-size:14.5px;
+  padding:12px 18px; border-radius:11px; cursor:pointer;
+  border:1.5px solid var(--teal); background:rgba(14,107,100,.06); color:var(--teal-dark);
+  transition:background .15s ease, color .15s ease, transform .1s ease;
+}
+.btn-add-item:hover{ background:var(--teal); color:#fff; }
+.btn-add-item:focus-visible{ outline:2px solid var(--teal-dark); outline-offset:2px; }
+.btn-add-item:active{ transform:scale(.98); }
+.add-item-hint{ font-size:13px; color:var(--ink-soft); }
+
+/* ---- items list ---- */
+.items-count{
+  display:inline-block; min-width:26px; text-align:center;
+  background:var(--amber-soft); color:#6B4A17; border-radius:999px;
+  font-family:var(--font-body); font-size:13px; font-weight:700; padding:3px 10px;
+  vertical-align:middle; margin-inline-start:6px;
+}
+.items-list{ list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:10px; }
+.item-row{
+  display:flex; align-items:center; gap:14px;
+  border:1.5px solid var(--line); border-radius:12px; padding:10px 14px;
+  background:#fff;
+}
+.item-row .item-thumb{
+  width:52px; height:52px; border-radius:8px; object-fit:cover; flex-shrink:0;
+  border:1px solid var(--line); background:var(--paper);
+}
+.item-row .item-info{ flex:1; min-width:0; }
+.item-row .item-info strong{
+  display:block; font-size:14.5px; color:var(--ink);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.item-row .item-info span{ font-size:12.5px; color:var(--ink-soft); font-family:var(--font-mono); letter-spacing:1px; }
+.item-row .item-meta{ font-size:12.5px; color:var(--ink-soft); white-space:nowrap; }
+.item-actions{ display:flex; gap:6px; flex-shrink:0; }
+.icon-btn{
+  display:inline-flex; align-items:center; justify-content:center;
+  width:34px; height:34px; border-radius:9px; cursor:pointer;
+  border:1.5px solid var(--line); background:transparent; color:var(--ink-soft);
+  transition:border-color .15s ease, color .15s ease, background .15s ease;
+}
+.icon-btn:hover{ border-color:var(--teal); color:var(--teal-dark); background:rgba(14,107,100,.05); }
+.icon-btn.danger:hover{ border-color:var(--danger); color:var(--danger); background:var(--danger-soft); }
+.icon-btn:focus-visible{ outline:2px solid var(--teal); outline-offset:2px; }
+
+/* ---- actions ---- */
+.actions{ display:flex; gap:12px; margin-top:6px; }
+.btn{
+  font-family:var(--font-body); font-weight:700; font-size:15.5px;
+  padding:15px 20px; border-radius:12px; border:none; cursor:pointer;
+  transition:transform .1s ease, box-shadow .15s ease, background .15s ease, color .15s ease;
+}
+.btn:focus-visible{ outline:2px solid var(--teal-dark); outline-offset:2px; }
+.btn-primary{ flex:1; background:var(--teal); color:#fff; box-shadow:0 8px 20px rgba(14,107,100,.28); }
+.btn-primary:hover:not(:disabled){ background:var(--teal-dark); }
+.btn-primary:disabled{ background:#C9CFD6; color:#8992A0; box-shadow:none; cursor:not-allowed; }
+.btn-ghost{ flex:0 0 auto; padding-inline:24px; background:transparent; color:var(--ink-soft); border:1.5px solid var(--line); }
+.btn-ghost:hover{ border-color:var(--ink-soft); color:var(--ink); }
+.btn:active:not(:disabled){ transform:scale(.98); }
+
+/* ---- toast ---- */
+.toast{
+  position:fixed; top:20px; left:50%; z-index:1000;
+  transform:translateX(-50%) translateY(-16px);
+  background:var(--ink); color:#fff; font-weight:600; font-size:14.5px;
+  padding:14px 22px; border-radius:12px; box-shadow:0 12px 30px rgba(0,0,0,.25);
+  opacity:0; pointer-events:none; transition:opacity .25s ease, transform .25s ease;
+  max-width:min(90vw,420px); text-align:center;
+}
+.toast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
+.toast.success{ background:var(--success); }
+.toast.error{ background:var(--danger); }
+
+@media (prefers-reduced-motion:reduce){
+  *{ transition:none !important; animation:none !important; }
+}
+</style>
+</head>
+<body>
+<!-- ======================================================================
+     HTML LAYOUT
+     ====================================================================== -->
+<div class="page">
+
+  <header class="page-header">
+    <h1>טופס קליטת מוצר</h1>
+    <div class="accent-rule"></div>
+    <p>מלאו את פרטי הגורם העסקי, הוסיפו פריט אחד או יותר, והפיקו קובץ Excel אחד בפורמט הקטלוג</p>
+  </header>
+
+  <form id="productForm" novalidate>
+
+    <section class="card">
+      <h2>סוג הגורם העסקי</h2>
+      <div class="type-toggle">
+        <div class="type-option">
+          <input type="radio" name="entityType" id="type-supplier" value="ספק">
+          <label for="type-supplier">ספק</label>
+        </div>
+        <div class="type-option">
+          <input type="radio" name="entityType" id="type-franchise" value="זכיין">
+          <label for="type-franchise">זכיין</label>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>פרטי גורם עסקי</h2>
+      <p class="placeholder-hint" id="entityPlaceholder">בחרו "ספק" או "זכיין" כדי להציג את השדות המתאימים.</p>
+      <div class="field-grid" id="entityFields" hidden>
+        <div class="field" data-field="entityName">
+          <label for="entityName"><span id="entityNameLabel">שם</span><span class="req">*</span></label>
+          <input type="text" id="entityName" autocomplete="off">
+          <span class="error-msg"></span>
+        </div>
+        <div class="field" data-field="entityNumber">
+          <label for="entityNumber"><span id="entityNumberLabel">מספר</span><span class="req">*</span></label>
+          <input type="text" id="entityNumber" class="numeric-input" inputmode="numeric" maxlength="15" autocomplete="off">
+          <span class="error-msg"></span>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2 id="productCardTitle">פרטי המוצר</h2>
+
+      <div class="field full" style="margin-bottom:18px;">
+        <label>תמונת מוצר<span class="req">*</span></label>
+        <div class="dropzone" id="dropzone" tabindex="0" role="button" aria-label="העלאת תמונת מוצר">
+          <div class="thumb" id="imgThumb">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
+          </div>
+          <div class="hint">
+            <strong>גררו תמונה לכאן או לחצו לבחירה</strong>
+            <span>PNG / JPG — תוצג בתא "תמונת מוצר" בקובץ שיופק</span>
+          </div>
+          <input type="file" id="imageInput" accept="image/*" hidden>
+        </div>
+        <span class="error-msg" id="imageError"></span>
+      </div>
+
+      <div class="field-grid">
+        <div class="field full" data-field="description">
+          <label for="description">תיאור המוצר<span class="req">*</span></label>
+          <textarea id="description" rows="2"></textarea>
+          <span class="error-msg"></span>
+        </div>
+
+        <div class="field" data-field="barcode">
+          <label for="barcode">ברקוד<span class="req">*</span></label>
+          <input type="text" id="barcode" class="numeric-input barcode-input" inputmode="numeric" maxlength="14" autocomplete="off">
+          <span class="error-msg"></span>
+          <button type="button" class="scan-btn" id="barcodeScanBtn">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5v14M7 5v14M11 5v14M14 5v14M18 5v14M21 5v14"></path></svg>
+            <span>סריקת ברקוד מתמונה</span>
+          </button>
+          <input type="file" id="barcodeImageInput" accept="image/*" hidden>
+          <span class="scan-status" id="barcodeScanStatus" role="status" aria-live="polite"></span>
+        </div>
+
+        <div class="field" data-field="weight">
+          <label for="weight">משקל (ק"ג)<span class="req">*</span></label>
+          <div class="input-suffix-wrap">
+            <input type="text" id="weight" class="numeric-input" inputmode="decimal" maxlength="10" autocomplete="off">
+            <span class="suffix">ק"ג</span>
+          </div>
+          <span class="error-msg"></span>
+        </div>
+
+        <div class="field" data-field="costPrice">
+          <label for="costPrice">מחיר עלות כולל מע"מ<span class="req">*</span></label>
+          <div class="input-suffix-wrap">
+            <input type="text" id="costPrice" class="numeric-input" inputmode="decimal" maxlength="10" autocomplete="off">
+            <span class="suffix">₪</span>
+          </div>
+          <span class="error-msg"></span>
+        </div>
+
+        <div class="field" data-field="recPrice">
+          <label for="recPrice">מחיר מומלץ לצרכן<span class="req">*</span></label>
+          <div class="input-suffix-wrap">
+            <input type="text" id="recPrice" class="numeric-input" inputmode="decimal" maxlength="10" autocomplete="off">
+            <span class="suffix">₪</span>
+          </div>
+          <span class="error-msg"></span>
+        </div>
+
+        <div class="field" data-field="stock">
+          <label for="stock">מלאי (יחידות)<span class="req">*</span></label>
+          <input type="text" id="stock" class="numeric-input" inputmode="numeric" maxlength="9" autocomplete="off">
+          <span class="error-msg"></span>
+        </div>
+      </div>
+
+      <div class="add-item-bar">
+        <button type="button" class="btn-add-item" id="addItemBtn">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+          <span id="addItemBtnLabel">הוספת הפריט לרשימה</span>
+        </button>
+        <span class="add-item-hint" id="addItemHint">מלאו את פרטי הפריט ולחצו כדי להוסיפו. ניתן להוסיף כמה פריטים שתרצו.</span>
+      </div>
+    </section>
+
+    <section class="card" id="itemsCard" hidden>
+      <h2>פריטים שנוספו<span class="items-count" id="itemsCount">0</span></h2>
+      <ul class="items-list" id="itemsList"></ul>
+    </section>
+
+    <section class="card">
+      <h2>תצוגה מקדימה</h2>
+
+      <div class="preview-wrap">
+        <table class="preview-table">
+          <tbody>
+            <tr id="previewEntityHeaderRow"><th>שם</th><th>מספר</th></tr>
+            <tr id="previewEntityRow"><td class="empty">—</td><td class="empty">—</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="preview-wrap">
+        <table class="preview-table">
+          <tbody id="previewProductBody">
+            <tr>
+              <th>תמונת מוצר</th><th>תיאור המוצר</th><th>ברקוד</th><th>משקל (ק"ג)</th><th>מחיר עלות כולל מע"מ</th><th>מחיר מומלץ לצרכן</th><th>מלאי (יחידות)</th>
+            </tr>
+            <tr id="previewProductRow" class="preview-current">
+              <td class="empty">—</td><td class="empty">—</td><td class="empty">—</td><td class="empty">—</td><td class="empty">—</td><td class="empty">—</td><td class="empty">—</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <div class="actions">
+      <button type="button" class="btn btn-ghost" id="resetBtn">איפוס טופס</button>
+      <button type="submit" class="btn btn-primary" id="generateBtn" disabled>יצירת קובץ Excel</button>
+    </div>
+  </form>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+/* ======================================================================
+   JAVASCRIPT LOGIC
+   ====================================================================== */
+(function () {
+  'use strict';
+
+  const $ = (sel) => document.querySelector(sel);
+
+  const form                 = $('#productForm');
+  const entityFields         = $('#entityFields');
+  const entityPlaceholder    = $('#entityPlaceholder');
+  const entityNameInput      = $('#entityName');
+  const entityNumberInput    = $('#entityNumber');
+  const entityNameLabel      = $('#entityNameLabel');
+  const entityNumberLabel    = $('#entityNumberLabel');
+  const descriptionInput     = $('#description');
+  const barcodeInput         = $('#barcode');
+  const weightInput          = $('#weight');
+  const costPriceInput       = $('#costPrice');
+  const recPriceInput        = $('#recPrice');
+  const stockInput           = $('#stock');
+  const dropzone             = $('#dropzone');
+  const imageInput           = $('#imageInput');
+  const imgThumb             = $('#imgThumb');
+  const imageError           = $('#imageError');
+  const barcodeScanBtn       = $('#barcodeScanBtn');
+  const barcodeImageInput    = $('#barcodeImageInput');
+  const barcodeScanStatus    = $('#barcodeScanStatus');
+  const generateBtn          = $('#generateBtn');
+  const resetBtn             = $('#resetBtn');
+  const toast                = $('#toast');
+  const previewEntityHeaderRow = $('#previewEntityHeaderRow');
+  const previewEntityRow     = $('#previewEntityRow');
+  const previewProductBody   = $('#previewProductBody');
+  const previewProductRow    = $('#previewProductRow');
+  const productCardTitle     = $('#productCardTitle');
+  const addItemBtn           = $('#addItemBtn');
+  const addItemBtnLabel      = $('#addItemBtnLabel');
+  const addItemHint          = $('#addItemHint');
+  const itemsCard            = $('#itemsCard');
+  const itemsList            = $('#itemsList');
+  const itemsCount           = $('#itemsCount');
+
+  const CAMERA_ICON_HTML = imgThumb.innerHTML;
+
+  let entityType   = null;  // 'ספק' | 'זכיין'
+  let productImage = null;  // { pngBlob, width, height, previewUrl }
+  let imageTouched = false;
+  let products     = [];    // committed items: { description, barcode, weight, costPrice, recPrice, stock, image }
+  let editingIndex = -1;    // index of the item currently loaded back into the editor (-1 = new item)
+
+  const FIELD_LABELS = {
+    'ספק':   { name: 'שם ספק',   number: 'מספר ספק' },
+    'זכיין': { name: 'שם זכיין', number: 'מספר זכיין' },
+  };
+
+  const PRODUCT_HEADERS = [
+    'תמונת מוצר', 'תיאור המוצר', 'ברקוד', 'משקל (ק"ג)',
+    'מחיר עלות כולל מע"מ', 'מחיר מומלץ לצרכן', 'מלאי (יחידות)',
+  ];
+
+  // ---------------- cell styles (mirrors the original template's styles.xml) ----------------
+  const THIN = { style: 'thin', color: { rgb: '000000' } };
+  const BORDER_ALL = { top: THIN, bottom: THIN, left: THIN, right: THIN };
+
+  const STYLE_HEADER_YELLOW = {
+    font: { name: 'Arial', sz: 11, bold: true, color: { rgb: '000000' } },
+    fill: { patternType: 'solid', fgColor: { rgb: 'FFFF00' } },
+    border: BORDER_ALL,
+    alignment: { horizontal: 'center', vertical: 'center' },
+  };
+  const STYLE_VALUE = {
+    font: { name: 'Arial', sz: 11, color: { rgb: '000000' } },
+    border: BORDER_ALL,
+    alignment: { horizontal: 'center', vertical: 'center' },
+  };
+  const STYLE_PRODUCT_HEADER = {
+    font: { name: 'Arial', sz: 12, bold: true, color: { rgb: '000000' } },
+    border: BORDER_ALL,
+    alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+  };
+  const STYLE_DESC = {
+    font: { name: 'Arial', sz: 14, color: { rgb: '000000' } },
+    border: BORDER_ALL,
+    alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+  };
+  const STYLE_NUM = {
+    font: { name: 'Arial', sz: 14, color: { rgb: '000000' } },
+    border: BORDER_ALL,
+    alignment: { horizontal: 'center', vertical: 'center' },
+  };
+
+  const FIELD_INPUTS = {
+    entityName: entityNameInput, entityNumber: entityNumberInput, description: descriptionInput,
+    barcode: barcodeInput, weight: weightInput, costPrice: costPriceInput, recPrice: recPriceInput, stock: stockInput,
+  };
+
+  // ---------------- validation ----------------
+  function isRequired(v){ return v.trim().length > 0; }
+  function isDigits(v, min, max){ return new RegExp('^\\d{' + min + ',' + max + '}$').test(v.trim()); }
+  function isPositiveDecimal(v, maxDec){
+    const re = new RegExp('^\\d+(\\.\\d{1,' + maxDec + '})?$');
+    return re.test(v.trim()) && parseFloat(v) > 0;
+  }
+  function isNonNegativeInt(v){ return /^\d+$/.test(v.trim()); }
+
+  const VALIDATORS = {
+    entityName:   v => isRequired(v) || 'שדה חובה',
+    entityNumber: v => !isRequired(v) ? 'שדה חובה' : (isDigits(v, 1, 15) || 'יש להזין מספר בלבד'),
+    description:  v => isRequired(v) || 'שדה חובה',
+    barcode:      v => !isRequired(v) ? 'שדה חובה' : (isDigits(v, 8, 14) || 'ברקוד חייב להכיל 8–14 ספרות'),
+    weight:       v => !isRequired(v) ? 'שדה חובה' : (isPositiveDecimal(v, 3) || 'יש להזין משקל תקין (מספר חיובי)'),
+    costPrice:    v => !isRequired(v) ? 'שדה חובה' : (isPositiveDecimal(v, 2) || 'יש להזין מחיר תקין (מספר חיובי)'),
+    recPrice:     v => !isRequired(v) ? 'שדה חובה' : (isPositiveDecimal(v, 2) || 'יש להזין מחיר תקין (מספר חיובי)'),
+    stock:        v => !isRequired(v) ? 'שדה חובה' : (isNonNegativeInt(v) || 'יש להזין כמות תקינה (מספר שלם)'),
+  };
+
+  function validateField(key){
+    const input = FIELD_INPUTS[key];
+    const wrap  = input.closest('.field');
+    const errEl = wrap.querySelector('.error-msg');
+    const result = VALIDATORS[key](input.value);
+    const ok = result === true;
+    wrap.classList.toggle('invalid', !ok);
+    errEl.textContent = ok ? '' : result;
+    return ok;
+  }
+
+  const ENTITY_KEYS  = ['entityName', 'entityNumber'];
+  const PRODUCT_KEYS = ['description', 'barcode', 'weight', 'costPrice', 'recPrice', 'stock'];
+
+  function keyValid(key){ return VALIDATORS[key](FIELD_INPUTS[key].value) === true; }
+
+  // The product editor is 'empty' (nothing typed, no image), 'valid' (a complete item
+  // ready to be added), or 'partial' (started but incomplete/invalid).
+  function editorState(){
+    const anyFilled = PRODUCT_KEYS.some(k => FIELD_INPUTS[k].value.trim().length > 0) || !!productImage;
+    const allValid  = PRODUCT_KEYS.every(keyValid) && !!productImage;
+    if (allValid) return 'valid';
+    return anyFilled ? 'partial' : 'empty';
+  }
+
+  function validateAll(silent){
+    const state = editorState();
+
+    let entityOk = !!entityType;
+    ENTITY_KEYS.forEach(key => {
+      if (silent) { if (!keyValid(key)) entityOk = false; }
+      else if (!validateField(key)) entityOk = false;
+    });
+
+    // Show product-field errors only when the editor is actually in use, so an empty
+    // editor sitting above an already-committed items list doesn't light up red.
+    if (!silent && state !== 'empty') {
+      PRODUCT_KEYS.forEach(validateField);
+      imageError.textContent = (!productImage && (imageTouched || state === 'partial')) ? 'יש להעלות תמונת מוצר' : '';
+    } else if (!silent) {
+      PRODUCT_KEYS.forEach(key => {
+        const wrap = FIELD_INPUTS[key].closest('.field');
+        wrap.classList.remove('invalid');
+        wrap.querySelector('.error-msg').textContent = '';
+      });
+      imageError.textContent = '';
+    }
+
+    // Excel can be generated when the entity is valid AND either the editor holds a
+    // complete item (it will be auto-added on generate) or there are committed items
+    // and the editor is untouched.
+    const ok = entityOk && (state === 'valid' || (products.length > 0 && state === 'empty'));
+    generateBtn.disabled = !ok;
+
+    addItemHint.textContent =
+      editingIndex >= 0 ? 'עריכת פריט מס׳ ' + (editingIndex + 1) + ' — לחצו לשמירת השינויים.' :
+      state === 'valid' ? 'הפריט מוכן — לחצו להוספתו לרשימה ולהזנת פריט נוסף.' :
+      state === 'partial' ? 'השלימו את כל שדות הפריט (כולל תמונה) כדי להוסיפו לרשימה.' :
+      products.length > 0 ? 'ניתן להזין פריט נוסף, או ללחוץ על "יצירת קובץ Excel" למטה.' :
+      'מלאו את פרטי הפריט ולחצו כדי להוסיפו. ניתן להוסיף כמה פריטים שתרצו.';
+
+    updatePreview();
+    return ok;
+  }
+
+  // ---------------- items list management ----------------
+  function collectCurrentProduct(){
+    return {
+      description: descriptionInput.value.trim(),
+      barcode:     barcodeInput.value.trim(),
+      weight:      weightInput.value.trim(),
+      costPrice:   costPriceInput.value.trim(),
+      recPrice:    recPriceInput.value.trim(),
+      stock:       stockInput.value.trim(),
+      image:       productImage, // ownership of previewUrl moves to the list item
+    };
+  }
+
+  function clearProductEditor(){
+    PRODUCT_KEYS.forEach(key => {
+      const input = FIELD_INPUTS[key];
+      input.value = '';
+      const wrap = input.closest('.field');
+      wrap.classList.remove('invalid');
+      wrap.querySelector('.error-msg').textContent = '';
+    });
+    productImage = null; // do NOT revoke here — the blob URL now belongs to the committed item
+    imageTouched = false;
+    imgThumb.innerHTML = CAMERA_ICON_HTML;
+    imageError.textContent = '';
+    setScanStatus('');
+    editingIndex = -1;
+    productCardTitle.textContent = 'פרטי המוצר';
+    addItemBtnLabel.textContent = 'הוספת הפריט לרשימה';
+  }
+
+  function commitEditorItem(){
+    // Validate the editor with visible errors; returns true if the item was committed.
+    let ok = true;
+    PRODUCT_KEYS.forEach(key => { if (!validateField(key)) ok = false; });
+    imageTouched = true;
+    imageError.textContent = productImage ? '' : 'יש להעלות תמונת מוצר';
+    if (!ok || !productImage) return false;
+
+    const item = collectCurrentProduct();
+    if (editingIndex >= 0) products.splice(editingIndex, 0, item); // restore edited item to its slot
+    else products.push(item);
+    clearProductEditor();
+    renderItems();
+    validateAll(true);
+    return true;
+  }
+
+  function deleteItem(idx){
+    const item = products[idx];
+    if (item.image && item.image.previewUrl) URL.revokeObjectURL(item.image.previewUrl);
+    products.splice(idx, 1);
+    if (editingIndex > idx) editingIndex--;
+    renderItems();
+    validateAll(true);
+  }
+
+  function editItem(idx){
+    if (editorState() !== 'empty') {
+      showToast('סיימו או נקו את הפריט שבעריכה לפני עריכת פריט אחר', 'error');
+      return;
+    }
+    const item = products[idx];
+    descriptionInput.value = item.description;
+    barcodeInput.value     = item.barcode;
+    weightInput.value      = item.weight;
+    costPriceInput.value   = item.costPrice;
+    recPriceInput.value    = item.recPrice;
+    stockInput.value       = item.stock;
+    productImage = item.image;
+    imageTouched = true;
+    imgThumb.innerHTML = '<img src="' + item.image.previewUrl + '" alt="תצוגה מקדימה של המוצר">';
+    products.splice(idx, 1); // pull the item back into the editor; commit re-inserts it
+    editingIndex = idx;
+    productCardTitle.textContent = 'עריכת פריט מס׳ ' + (idx + 1);
+    addItemBtnLabel.textContent = 'שמירת השינויים';
+    renderItems();
+    validateAll(true);
+    productCardTitle.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function renderItems(){
+    itemsCard.hidden = products.length === 0 && editingIndex < 0;
+    itemsCount.textContent = products.length;
+    itemsList.innerHTML = '';
+    products.forEach((item, idx) => {
+      const li = document.createElement('li');
+      li.className = 'item-row';
+      li.innerHTML =
+        '<img class="item-thumb" src="' + item.image.previewUrl + '" alt="">' +
+        '<div class="item-info"><strong>' + escapeHtml(item.description) + '</strong>' +
+        '<span>' + escapeHtml(item.barcode) + '</span></div>' +
+        '<div class="item-meta">' + escapeHtml(item.stock) + ' יח׳ · ' + escapeHtml(item.recPrice) + ' ₪</div>' +
+        '<div class="item-actions">' +
+        '<button type="button" class="icon-btn" data-action="edit" data-idx="' + idx + '" title="עריכת הפריט" aria-label="עריכת הפריט">' +
+        '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z"></path></svg></button>' +
+        '<button type="button" class="icon-btn danger" data-action="delete" data-idx="' + idx + '" title="מחיקת הפריט" aria-label="מחיקת הפריט">' +
+        '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path></svg></button>' +
+        '</div>';
+      itemsList.appendChild(li);
+    });
+  }
+
+  itemsList.addEventListener('click', e => {
+    const btn = e.target.closest('button[data-action]');
+    if (!btn) return;
+    const idx = parseInt(btn.dataset.idx, 10);
+    if (btn.dataset.action === 'delete') deleteItem(idx);
+    else editItem(idx);
+  });
+
+  addItemBtn.addEventListener('click', () => {
+    if (editorState() === 'empty') {
+      showToast('מלאו את פרטי הפריט לפני ההוספה לרשימה', 'error');
+      validateAll(false);
+      return;
+    }
+    const wasEditing = editingIndex >= 0;
+    if (commitEditorItem()) {
+      showToast(wasEditing ? 'השינויים נשמרו' : 'הפריט נוסף לרשימה (' + products.length + ' פריטים)', 'success');
+    } else {
+      showToast('נא להשלים את כל שדות הפריט', 'error');
+    }
+  });
+
+  // ---------------- entity type switch ----------------
+  document.querySelectorAll('input[name="entityType"]').forEach(radio => {
+    radio.addEventListener('change', () => {
+      entityType = radio.value;
+      const labels = FIELD_LABELS[entityType];
+      entityNameLabel.textContent = labels.name;
+      entityNumberLabel.textContent = labels.number;
+      entityPlaceholder.hidden = true;
+      entityFields.hidden = false;
+      previewEntityHeaderRow.innerHTML = '<th>' + labels.name + '</th><th>' + labels.number + '</th>';
+      validateAll(true);
+    });
+  });
+
+  // ---------------- live field validation ----------------
+  Object.keys(FIELD_INPUTS).forEach(key => {
+    FIELD_INPUTS[key].addEventListener('input', () => validateAll(false));
+    FIELD_INPUTS[key].addEventListener('blur', () => validateAll(false));
+  });
+
+  // ---------------- image upload ----------------
+  const MAX_DIM = 1000; // cap embedded photo resolution; cell display is tiny regardless
+
+  function loadImageFile(file){
+    if (!file || !file.type.startsWith('image/')) {
+      imageError.textContent = 'יש לבחור קובץ תמונה תקין';
+      return;
+    }
+    imageTouched = true;
+    const objectUrl = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      const scale = Math.min(1, MAX_DIM / Math.max(img.naturalWidth, img.naturalHeight)) || 1;
+      const cw = Math.max(1, Math.round(img.naturalWidth * scale));
+      const ch = Math.max(1, Math.round(img.naturalHeight * scale));
+      const canvas = document.createElement('canvas');
+      canvas.width = cw; canvas.height = ch;
+      canvas.getContext('2d').drawImage(img, 0, 0, cw, ch);
+      canvas.toBlob(blob => {
+        if (productImage && productImage.previewUrl) URL.revokeObjectURL(productImage.previewUrl);
+        const previewUrl = URL.createObjectURL(blob);
+        productImage = { pngBlob: blob, width: cw, height: ch, previewUrl };
+        imgThumb.innerHTML = '<img src="' + previewUrl + '" alt="תצוגה מקדימה של המוצר">';
+        URL.revokeObjectURL(objectUrl);
+        validateAll(false);
+      }, 'image/png');
+    };
+    img.onerror = () => {
+      imageError.textContent = 'לא ניתן לטעון את הקובץ שנבחר';
+      URL.revokeObjectURL(objectUrl);
+    };
+    img.src = objectUrl;
+  }
+
+  dropzone.addEventListener('click', () => imageInput.click());
+  dropzone.addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); imageInput.click(); }
+  });
+  imageInput.addEventListener('change', e => loadImageFile(e.target.files[0]));
+  ['dragover', 'dragenter'].forEach(evt =>
+    dropzone.addEventListener(evt, e => { e.preventDefault(); dropzone.classList.add('dragover'); }));
+  ['dragleave', 'drop'].forEach(evt =>
+    dropzone.addEventListener(evt, e => { e.preventDefault(); dropzone.classList.remove('dragover'); }));
+  dropzone.addEventListener('drop', e => {
+    const f = e.dataTransfer.files[0];
+    if (f) loadImageFile(f);
+  });
+
+  // ---------------- barcode scan from image ----------------
+  function setScanStatus(msg, kind){
+    barcodeScanStatus.textContent = msg;
+    barcodeScanStatus.className = 'scan-status' + (kind ? ' ' + kind : '');
+  }
+
+  // ponytail: default multi-format reader, no format hints — EAN-13's check digit makes a
+  // false decode very unlikely, and VALIDATORS.barcode catches anything malformed anyway.
+  async function decodeBarcodeFromFile(file){
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { setScanStatus('יש לבחור קובץ תמונה תקין', 'fail'); return; }
+    if (typeof ZXingBrowser === 'undefined') {
+      setScanStatus('קורא הברקוד לא נטען. בדקו את החיבור לאינטרנט או הזינו ידנית.', 'fail');
+      return;
+    }
+
+    setScanStatus('סורק…');
+    barcodeScanBtn.disabled = true;
+    const url = URL.createObjectURL(file);
+    try {
+      const reader = new ZXingBrowser.BrowserMultiFormatReader();
+      const result = await reader.decodeFromImageUrl(url);
+      const digits = (result.text || '').replace(/\D/g, '');
+      if (!digits) throw new Error('no-digits');
+      barcodeInput.value = digits;
+      validateAll(false);
+      if (VALIDATORS.barcode(digits) === true) {
+        setScanStatus('זוהה ברקוד: ' + digits, 'ok');
+        showToast('הברקוד זוהה מהתמונה: ' + digits, 'success');
+      } else {
+        setScanStatus('זוהה ' + digits + ' — בדקו את התקינות או הזינו ידנית.', 'fail');
+      }
+    } catch (err) {
+      setScanStatus('לא זוהה ברקוד בתמונה. נסו תמונה חדה יותר או הזינו ידנית.', 'fail');
+    } finally {
+      URL.revokeObjectURL(url);
+      barcodeScanBtn.disabled = false;
+      barcodeImageInput.value = ''; // let the same file re-trigger 'change'
+    }
+  }
+
+  barcodeScanBtn.addEventListener('click', () => barcodeImageInput.click());
+  barcodeImageInput.addEventListener('change', e => decodeBarcodeFromFile(e.target.files[0]));
+
+  // ---------------- live preview ----------------
+  function updatePreview(){
+    if (entityType) {
+      const nameVal = entityNameInput.value.trim();
+      const numVal  = entityNumberInput.value.trim();
+      previewEntityRow.innerHTML =
+        '<td class="' + (nameVal ? '' : 'empty') + '">' + (escapeHtml(nameVal) || '—') + '</td>' +
+        '<td class="' + (numVal  ? '' : 'empty') + '">' + (escapeHtml(numVal)  || '—') + '</td>';
+    }
+
+    // rebuild one row per committed item (inserted before the live editor row)
+    previewProductBody.querySelectorAll('tr.preview-committed').forEach(tr => tr.remove());
+    products.forEach(item => {
+      const tr = document.createElement('tr');
+      tr.className = 'preview-committed';
+      tr.innerHTML =
+        '<td><img class="prev-thumb" src="' + item.image.previewUrl + '" alt=""></td>' +
+        '<td>' + escapeHtml(item.description) + '</td>' +
+        '<td>' + escapeHtml(item.barcode) + '</td>' +
+        '<td>' + escapeHtml(item.weight) + '</td>' +
+        '<td>' + escapeHtml(item.costPrice) + '</td>' +
+        '<td>' + escapeHtml(item.recPrice) + '</td>' +
+        '<td>' + escapeHtml(item.stock) + '</td>';
+      previewProductBody.insertBefore(tr, previewProductRow);
+    });
+
+    // the live editor row: hidden when the editor is empty and items already exist
+    const vals = [descriptionInput.value.trim(), barcodeInput.value.trim(), weightInput.value.trim(),
+                   costPriceInput.value.trim(), recPriceInput.value.trim(), stockInput.value.trim()];
+    const editorEmpty = !productImage && vals.every(v => !v);
+    previewProductRow.hidden = editorEmpty && products.length > 0;
+    const cells = previewProductRow.querySelectorAll('td');
+    cells[0].classList.toggle('empty', !productImage);
+    cells[0].innerHTML = productImage ? '<img class="prev-thumb" src="' + productImage.previewUrl + '" alt="">' : '—';
+    for (let i = 0; i < vals.length; i++) {
+      const cell = cells[i + 1];
+      cell.textContent = vals[i] || '—';
+      cell.classList.toggle('empty', !vals[i]);
+    }
+  }
+
+  function escapeHtml(s){
+    return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+  }
+
+  // ---------------- reset ----------------
+  resetBtn.addEventListener('click', () => {
+    form.reset();
+    entityType = null;
+    entityFields.hidden = true;
+    entityPlaceholder.hidden = false;
+    if (productImage && productImage.previewUrl) URL.revokeObjectURL(productImage.previewUrl);
+    productImage = null;
+    imageTouched = false;
+    products.forEach(item => { if (item.image && item.image.previewUrl) URL.revokeObjectURL(item.image.previewUrl); });
+    products = [];
+    editingIndex = -1;
+    productCardTitle.textContent = 'פרטי המוצר';
+    addItemBtnLabel.textContent = 'הוספת הפריט לרשימה';
+    renderItems();
+    imgThumb.innerHTML = CAMERA_ICON_HTML;
+    imageError.textContent = '';
+    setScanStatus('');
+    barcodeScanBtn.disabled = false;
+    document.querySelectorAll('.field').forEach(f => f.classList.remove('invalid'));
+    document.querySelectorAll('.error-msg').forEach(e => e.textContent = '');
+    previewEntityHeaderRow.innerHTML = '<th>שם</th><th>מספר</th>';
+    previewEntityRow.innerHTML = '<td class="empty">—</td><td class="empty">—</td>';
+    previewProductRow.hidden = false;
+    updatePreview();
+    generateBtn.disabled = true;
+  });
+
+  // ---------------- filename / sheet-name sanitizing ----------------
+  function sanitizeFilenamePart(s){
+    return String(s).trim().replace(/[\\/:*?"<>|]+/g, '').replace(/\s+/g, '_') || 'קובץ';
+  }
+  function sanitizeSheetName(s){
+    return String(s).trim().replace(/[\\/:*?[\]]+/g, '').slice(0, 31) || 'מוצר';
+  }
+
+  // ---------------- workbook construction ----------------
+  function textCell(v, s){ return { t: 's', v: String(v), s: s }; }
+  function numCell(v, s){ return { t: 'n', v: Number(v), s: s }; }
+
+  function buildWorkbookArrayBuffer(){
+    const labels = FIELD_LABELS[entityType];
+
+    const row1 = [textCell(labels.name, STYLE_HEADER_YELLOW), textCell(labels.number, STYLE_HEADER_YELLOW)];
+    const row2 = [textCell(entityNameInput.value.trim(), STYLE_VALUE), textCell(entityNumberInput.value.trim(), STYLE_VALUE)];
+    const row3 = [];
+    const row4 = PRODUCT_HEADERS.map(h => textCell(h, STYLE_PRODUCT_HEADER));
+
+    // one row per committed item, starting at Excel row 5
+    const productRows = products.map(item => [
+      { t: 'z', s: STYLE_VALUE }, // product photo lives here as a floating image, not cell text
+      textCell(item.description, STYLE_DESC),
+      textCell(item.barcode, STYLE_NUM), // kept as text to preserve any leading zeros
+      numCell(item.weight, STYLE_NUM),
+      numCell(item.costPrice, STYLE_NUM),
+      numCell(item.recPrice, STYLE_NUM),
+      numCell(item.stock, STYLE_NUM),
+    ]);
+
+    const ws = XLSX.utils.aoa_to_sheet([row1, row2, row3, row4].concat(productRows));
+    ws['!ref']  = 'A1:G' + (4 + products.length);
+    ws['!cols'] = [{ wch: 20 }, { wch: 14.625 }, { wch: 21.75 }, { wch: 12.125 }, { wch: 23.75 }, { wch: 20.875 }, { wch: 15.25 }];
+    const rows = [];
+    rows[0] = { hpt: 15.75 }; rows[1] = { hpt: 13.5 }; rows[3] = { hpt: 15.75 };
+    for (let i = 0; i < products.length; i++) rows[4 + i] = { hpt: 87 };
+    ws['!rows'] = rows;
+
+    const wb = XLSX.utils.book_new();
+    wb.Workbook = { Views: [{ RTL: true }] };
+    const sheetName = products.length === 1 ? products[0].description : entityNameInput.value;
+    XLSX.utils.book_append_sheet(wb, ws, sanitizeSheetName(sheetName));
+    return XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+  }
+
+  // ---------------- embed the product photos as real pictures (SheetJS CE can't write images) ----------------
+  // One picture per item row: media/imageN.png anchored to cell A(5+i) via a single drawing part.
+  async function embedProductImages(arrayBuffer){
+    const zip = await JSZip.loadAsync(arrayBuffer);
+
+    const EMU = 9525;             // EMUs per pixel at 96 DPI
+    const boxW = 132, boxH = 112; // approx pixel box of a product cell (col width 20ch x row height 87pt)
+
+    let anchorsXml = '', drawingRelsXml = '';
+    for (let i = 0; i < products.length; i++) {
+      const img = products[i].image;
+      const pngBuffer = await img.pngBlob.arrayBuffer();
+      zip.file('xl/media/image' + (i + 1) + '.png', pngBuffer);
+
+      const fitScale = Math.min(boxW / img.width, boxH / img.height);
+      const dispW = Math.max(1, Math.round(img.width * fitScale));
+      const dispH = Math.max(1, Math.round(img.height * fitScale));
+      const cx = dispW * EMU, cy = dispH * EMU;
+
+      anchorsXml +=
+        '<xdr:oneCellAnchor>' +
+        '<xdr:from><xdr:col>0</xdr:col><xdr:colOff>19050</xdr:colOff><xdr:row>' + (4 + i) + '</xdr:row><xdr:rowOff>19050</xdr:rowOff></xdr:from>' +
+        '<xdr:ext cx="' + cx + '" cy="' + cy + '"/>' +
+        '<xdr:pic>' +
+        '<xdr:nvPicPr><xdr:cNvPr id="' + (i + 2) + '" name="ProductImage' + (i + 1) + '"/><xdr:cNvPicPr><a:picLocks noChangeAspect="1"/></xdr:cNvPicPr></xdr:nvPicPr>' +
+        '<xdr:blipFill><a:blip xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:embed="rId' + (i + 1) + '"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill>' +
+        '<xdr:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="' + cx + '" cy="' + cy + '"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr>' +
+        '</xdr:pic>' +
+        '<xdr:clientData/>' +
+        '</xdr:oneCellAnchor>';
+
+      drawingRelsXml +=
+        '<Relationship Id="rId' + (i + 1) + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/image' + (i + 1) + '.png"/>';
+    }
+
+    zip.file('xl/drawings/drawing1.xml',
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">' +
+      anchorsXml +
+      '</xdr:wsDr>');
+
+    zip.file('xl/drawings/_rels/drawing1.xml.rels',
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+      drawingRelsXml +
+      '</Relationships>');
+
+    const sheetRelsPath = 'xl/worksheets/_rels/sheet1.xml.rels';
+    const existingRelsFile = zip.file(sheetRelsPath);
+    let rId = 'rId1', relsXml;
+    if (existingRelsFile) {
+      relsXml = await existingRelsFile.async('string');
+      const ids = Array.from(relsXml.matchAll(/Id="rId(\d+)"/g)).map(m => parseInt(m[1], 10));
+      rId = 'rId' + ((ids.length ? Math.max.apply(null, ids) : 0) + 1);
+      relsXml = relsXml.replace('</Relationships>',
+        '<Relationship Id="' + rId + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing1.xml"/></Relationships>');
+    } else {
+      relsXml =
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+        '<Relationship Id="' + rId + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing1.xml"/>' +
+        '</Relationships>';
+    }
+    zip.file(sheetRelsPath, relsXml);
+
+    let sheetXml = await zip.file('xl/worksheets/sheet1.xml').async('string');
+    if (!/rightToLeft=/.test(sheetXml)) {
+      sheetXml = sheetXml.replace('<sheetView ', '<sheetView rightToLeft="1" ');
+    }
+    sheetXml = sheetXml.replace('</worksheet>', '<drawing r:id="' + rId + '"/></worksheet>');
+    zip.file('xl/worksheets/sheet1.xml', sheetXml);
+
+    let ctXml = await zip.file('[Content_Types].xml').async('string');
+    if (!/Extension="png"/.test(ctXml)) {
+      ctXml = ctXml.replace('</Types>', '<Default Extension="png" ContentType="image/png"/></Types>');
+    }
+    if (!/drawing1\.xml/.test(ctXml)) {
+      ctXml = ctXml.replace('</Types>', '<Override PartName="/xl/drawings/drawing1.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/></Types>');
+    }
+    zip.file('[Content_Types].xml', ctXml);
+
+    return zip.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  }
+
+  // ---------------- toast ----------------
+  function showToast(msg, type){
+    toast.textContent = (type === 'error' ? '⚠ ' : '✓ ') + msg;
+    toast.className = 'toast show ' + (type || 'success');
+    clearTimeout(showToast._t);
+    showToast._t = setTimeout(() => toast.classList.remove('show'), 3500);
+  }
+
+  // ---------------- submit ----------------
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    let entityOk = !!entityType;
+    ENTITY_KEYS.forEach(key => { if (!validateField(key)) entityOk = false; });
+    if (!entityOk) {
+      showToast('נא להשלים את פרטי הגורם העסקי', 'error');
+      return;
+    }
+
+    // If the editor holds an item (complete or in progress), commit it before generating.
+    const state = editorState();
+    if (state !== 'empty' && !commitEditorItem()) {
+      showToast('נא להשלים את פרטי הפריט הנוכחי או לנקות אותו לפני יצירת הקובץ', 'error');
+      return;
+    }
+    if (products.length === 0) {
+      showToast('יש להוסיף לפחות פריט אחד לפני יצירת הקובץ', 'error');
+      return;
+    }
+
+    generateBtn.disabled = true;
+    const originalLabel = generateBtn.textContent;
+    generateBtn.textContent = 'מפיק קובץ…';
+    try {
+      const arrayBuffer = buildWorkbookArrayBuffer();
+      const blob = await embedProductImages(arrayBuffer);
+      const filename = sanitizeFilenamePart(entityNameInput.value) + '_' +
+        (products.length === 1
+          ? sanitizeFilenamePart(products[0].barcode)
+          : products.length + '_פריטים') + '.xlsx';
+
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+
+      showToast('קובץ ה-Excel נוצר בהצלחה: ' + filename, 'success');
+    } catch (err) {
+      console.error(err);
+      showToast('אירעה שגיאה ביצירת הקובץ', 'error');
+    } finally {
+      generateBtn.textContent = originalLabel;
+      validateAll(true);
+    }
+  });
+
+  // ---------------- initial state ----------------
+  validateAll(true);
+})();
+</script>
+</body>
+</html>
